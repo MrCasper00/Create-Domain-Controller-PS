@@ -1,0 +1,236 @@
+Param(
+   [Parameter(Mandatory)]
+   $IP,
+   [Parameter(Mandatory)]
+   $Subnet,
+   [Parameter(Mandatory)]
+   $Gateway,
+   [Parameter(Mandatory)]
+   $DNS,
+   [Parameter(Mandatory)]
+   $NaamServer,
+   [Parameter(Mandatory)]
+   $DN,
+   [Parameter(Mandatory)]
+   $DomainAdmin
+) 
+
+
+$tel = 0
+$tel2 = 0
+
+#De huidge default gateway verwijderen zodat er niet meer als 1 aanwezig is.
+try {
+Remove-NetRoute `
+-ifIndex (Get-NetAdapter | where Status -eq "up").InterfaceIndex `
+-DestinationPrefix 0.0.0.0/0 `
+-ErrorAction Stop
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+#De Huidige IP configuratie verwijderen
+try {
+Remove-NetIPAddress `
+    -InterfaceIndex (Get-NetAdapter | where Status -eq "up").InterfaceIndex `
+    -AddressFamily "IPv4" -ErrorAction Stop
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+#Statish IP Address maken
+try{
+New-NetIPAddress `
+    -IPAddress "$IP" `
+    -AddressFamily "IPv4" `
+    -DefaultGateway "$Gateway" `
+    -PrefixLength "$Subnet" `
+    -InterfaceIndex (Get-NetAdapter | where Status -eq "up").InterfaceIndex -ErrorAction Stop
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+#DNS Aanpassen
+try{
+Set-DnsClientServerAddress `
+    -ServerAddresses "$DNS" `
+    -InterfaceIndex (Get-NetAdapter | where Status -eq "up").InterfaceIndex | Select -first 1 IPv4Address, PrefixLength
+
+
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+Try {
+$ver= (Get-DnsClientServerAddress `
+    -InterfaceIndex (Get-NetAdapter | where Status -eq "up").InterfaceIndex | Select -First 1 )
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+
+
+#Extra check om te kijken of het IP adress veranderd is naar de correcte ingegeven waarden
+Try {
+$vor= (Get-NetIpConfiguration `
+    -InterfaceIndex (Get-NetAdapter | where Status -eq "up").InterfaceIndex | Select -First 1 ) 
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+Try{ 
+$var= (Get-NetIPAddress `
+    -AddressFamily IPv4 `
+    -ErrorAction Stop `
+    -InterfaceIndex (Get-NetAdapter | where Status -eq "up").InterfaceIndex | Select -first 1 IPv4Address, PrefixLength)
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+$var2 = $var.PrefixLength
+$var3 = $var.IPv4Address
+$var4 = $vor.IPv4DefaultGateway.NextHop ##IPv4DefaultGateway is geen string en bestaat uit meerdere members dus we pakken hier Nexthop
+$var5 = $ver.ServerAddresses
+
+If($var3 -eq $IP){
+    $tel += 1
+} else {
+   $tel -= 1
+}
+
+If($var2 -eq $Subnet){
+    $tel += 1   
+} else {
+    $tel -= 1   
+}
+
+If($var4 -eq $Gateway){
+    $tel += 1    
+} else {
+    $tel -= 1
+}
+
+if($var5 = $DNS){
+    $tel += 1    
+} else {
+    $tel -= 1
+}
+
+
+If($tel -eq 4){
+    echo "De netwerk instellingen zijn succesvol veranderd" 
+} else {
+    echo "De netwerk instellingen zijn niet veranderd, Voer het script nogmaals uit en vul alles correct in."
+    $tel2 += 1
+}
+
+#Voegt computer aan domein toe en past hostnaam aan
+try{
+Add-Computer `
+    -DomainName "$DN" `
+    -Credential "$DomainAdmin" `
+    -NewName "$NaamServer" `
+    -Erroraction Stop
+
+ } Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+    $tel2 += 1
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+    $tel2 += 1
+}
+
+
+
+
+
+
+If($tel2 -eq 0){
+
+
+$CurrentUser = [System.Environment]::UserName
+
+
+#Het resolven van het path voor de ingelogde gebruiker
+try {
+$path = Resolve-Path "C:\Users\$CurrentUser\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+$path2 = $path.Path
+$path2 += "\StartUp.cmd"
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+#nieuw bestand word aangemaakt op het path
+Try {
+ New-Item $path2 -type File
+ }Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+#het opstart bestand word aangevuld met de gegevens
+try {
+ Add-Content $path2 'PowerShell -Command "Set-ExecutionPolicy Unrestricted -Scope CurrentUser"
+PowerShell C:\DCNW.ps1'
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+#Het script om te kijken of de installatie goed voltooid is word gemaakt.
+try {
+New-Item C:\DCNW.ps1 -type File
+} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+#En het script word aangevuld met de gegevens.
+try{
+Add-Content C:\DCNW.ps1 '
+
+$pol= (Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain
+
+If ($pol -eq "True") {
+    Write-Host "Successvol toegevoegd aan het domein, De server is nu klaar voor gebruik" -fore Cyan
+} else {
+    Write-Host "Je bent niet sucessvol toegevoegd aan het domein, Probeer het script opnieuw te runnen" 
+}
+
+$CurrentUser = [System.Environment]::UserName
+
+$path = Resolve-Path "C:\Users\$CurrentUser\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+$path2 = $path.Path
+$path2 += "\StartUp.cmd"
+
+Remove-item $path2
+Start-Sleep -Seconds 30 
+'} Catch [System.IO.IOException]{
+    Echo "Er is iets fout gegaan: $($_.exception.message)"
+} Catch {
+    Echo "Er is iets fout gegaan: $($_.exception.message)" 
+}
+
+Echo "Herstart de server nu."
+
+}                        
+                           
